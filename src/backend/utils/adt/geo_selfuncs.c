@@ -128,7 +128,9 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
     int         nhist1;
     int         nhist2;
     int        *hist_occurs1;
+    int         * hist_avg_bin_count1;
     int        *hist_occurs2;
+    int         * hist_avg_bin_count2;
     int         i;
     Form_pg_statistic stats1 = NULL;
     TypeCacheEntry *typcache = NULL;
@@ -165,6 +167,15 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
             ReleaseVariableStats(vardata2);
             PG_RETURN_FLOAT8((float8) selec);
         }
+        //Try to get the additionnal statistique from rangetypes_typanalyze such as avg_bin_count
+        if (!get_attstatsslot(&hist_avg_bin_count1, vardata1.statsTuple,
+                             STATISTIC_OCCURRENCE_HISTOGRAM_AVG,
+                             InvalidOid, ATTSTATSSLOT_VALUES))
+        {
+            ReleaseVariableStats(vardata1);
+            ReleaseVariableStats(vardata2);
+            PG_RETURN_FLOAT8((float8) selec);
+        }
     }
 
     if (HeapTupleIsValid(vardata2.statsTuple))
@@ -175,6 +186,15 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
                              STATISTIC_KIND_OCCURRENCE_HISTOGRAM,
                              InvalidOid, ATTSTATSSLOT_VALUES))
         {
+            ReleaseVariableStats(vardata2);
+            PG_RETURN_FLOAT8((float8) selec);
+        }
+        //Try to get the additionnal statistique from rangetypes_typanalyze such as avg_bin_count
+        if (!get_attstatsslot(&hist_avg_bin_count2, vardata2.statsTuple,
+                             STATISTIC_OCCURRENCE_HISTOGRAM_AVG,
+                             InvalidOid, ATTSTATSSLOT_VALUES))
+        {
+            ReleaseVariableStats(vardata1);
             ReleaseVariableStats(vardata2);
             PG_RETURN_FLOAT8((float8) selec);
         }
