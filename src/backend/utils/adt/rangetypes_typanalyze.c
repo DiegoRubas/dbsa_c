@@ -117,6 +117,7 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 	RangeBound *lowers,
 			   *uppers;
 	double		total_width = 0;
+	int 		total_bin = 11;
 
 	/* Allocate memory to hold range bounds, lengths and occurrences of the sample ranges. */
 	lowers = (RangeBound *) palloc(sizeof(RangeBound) * samplerows);
@@ -124,21 +125,16 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 	lengths = (float8 *) palloc(sizeof(float8) * samplerows);
 	occurs = (float8 *) palloc(sizeof(float8) * samplerows);
 
-	for (int i = 0; i < 10; i++)
+	for (int i = 0; i < total_bin-1; i++)
 	{
 		occurs[i] = 0.0;
 	}
 
-	/* Prints contents of histogram. */
-	for (int i = 0; i < 10; i++) {
-		printf("%f ", DatumGetFloat8(occurs[i]));
-	}
-	printf("\n");
-	fflush(stdout);
+	
 
 	total_bin_count = 0;
 
-	bounds = malloc(sizeof(float8) * 11);
+	bounds = malloc(sizeof(float8) * total_bin);
 
 	/* Extracts the highest upper bound and lowest lower bound values. */
 	min_bound = 10000000;
@@ -164,14 +160,14 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 	// fflush(stdout);
 
 	/* Creates the bin intervals. */
-	for (int i = 0; i < 11; i++) {
-		bounds[i] = (float)min_bound + i * ((float)max_bound - (float)min_bound) / 10;
+	for (int i = 0; i < total_bin; i++) {
+		bounds[i] = (float)min_bound + i * ((float)max_bound - (float)min_bound) / total_bin-1;
 		// printf("%f ", bounds[i]);
 		// fflush(stdout);
 	}
 
 	/* Fills in the occurrence bins for the occurrence histogram. */
-	for (int i = 0; i < 10; i++) 
+	for (int i = 0; i < total_bin-1; i++) 
 	{
 		Datum		value;
 		bool		isnull,
@@ -191,7 +187,6 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 			} else {
 				occurs[i] += 1.0;
 				total_bin_count++;
-				fflush(stdout);
 			}
 		}
 	}
@@ -212,7 +207,7 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 	// fflush(stdout);
 
 	/* Prints contents of histogram. */
-	for (int i = 0; i < 10; i++) {
+	for (int i = 0; i < total_bin-1; i++) {
 		printf("%f ", occurs[i]);
 	}
 	printf("\n");
@@ -459,8 +454,9 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 				num_hist = num_bins + 1;
 
 			occur_hist_values = (Datum *) palloc(num_hist * sizeof(Datum));
-
-			for (i = 0; i < 10 ;i++)
+			
+			
+			for (i = 0; i < total_bin-1 ;i++)
 			{
 				occur_hist_values[i] = occurs[i];
 			}
@@ -495,6 +491,19 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 		stats->stakind[slot_idx] = STATISTIC_KIND_OCCURRENCE_HISTOGRAM;
 		slot_idx++;
 
+		//Store the average bin count that need to be pass to geo_selfuncs
+		Datum *avg_bin_count_datum;
+		avg_bin_count_datum = (Datum *) palloc(num_hist * sizeof(Datum));
+		//Adding 3 elements to avg_bin_count_datum to store other value if necessary
+		avg_bin_count_datum[0] = avg_bin_count;
+		avg_bin_count_datum[1] = avg_bin_count;
+		avg_bin_count_datum[2] = avg_bin_count;
+
+		//Adding the element to the stat variable
+		stats->stakind[slot_idx] = STATISTIC_OCCURRENCE_HISTOGRAM_AVG;
+		stats->stavalues[slot_idx] = avg_bin_count_datum;
+
+		slot_idx++;
 		MemoryContextSwitchTo(old_cxt);
 	}
 	else if (null_cnt > 0)
