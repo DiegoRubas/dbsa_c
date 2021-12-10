@@ -269,7 +269,9 @@ typedef FormData_pg_statistic *Form_pg_statistic;
  * bounds.  Only non-NULL, non-empty ranges are included.
  */
 #define STATISTIC_KIND_BOUNDS_HISTOGRAM  7
+#define STATISTIC_KIND_OCCURRENCE_HISTOGRAM 8
 
+#define STATISTIC_OCCURRENCE_HISTOGRAM_AVG 9
 #endif							/* EXPOSE_TO_CLIENT_CODE */
 
 #endif							/* PG_STATISTIC_H */
