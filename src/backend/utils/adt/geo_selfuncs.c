@@ -125,12 +125,10 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
     Oid         opfuncoid;
     AttStatsSlot sslot1;
     AttStatsSlot sslot2;
-    AttStatsSlot sslot3;
-    int         nhist;
-    RangeBound *hist_lower1;
-    RangeBound *hist_upper1;
-    float8     *hist_lengths1;
-    float8     *hist_occurs1;
+    int         nhist1;
+    int         nhist2;
+    int        *hist_occurs1;
+    int        *hist_occurs2;
     int         i;
     Form_pg_statistic stats1 = NULL;
     TypeCacheEntry *typcache = NULL;
@@ -145,9 +143,14 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
     opfuncoid = get_opcode(operator);
 
     memset(&sslot1, 0, sizeof(sslot1));
+    memset(&sslot2, 0, sizeof(sslot2));
 
     /* Can't use the histogram with insecure range support functions */
     if (!statistic_proc_security_check(&vardata1, opfuncoid))
+        PG_RETURN_FLOAT8((float8) selec);
+
+    /* Can't use the histogram with insecure range support functions */
+    if (!statistic_proc_security_check(&vardata2, opfuncoid))
         PG_RETURN_FLOAT8((float8) selec);
 
     if (HeapTupleIsValid(vardata1.statsTuple))
@@ -155,22 +158,6 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
         stats1 = (Form_pg_statistic) GETSTRUCT(vardata1.statsTuple);
         /* Try to get fraction of empty ranges */
         if (!get_attstatsslot(&sslot1, vardata1.statsTuple,
-                             STATISTIC_KIND_BOUNDS_HISTOGRAM,
-                             InvalidOid, ATTSTATSSLOT_VALUES))
-        {
-            ReleaseVariableStats(vardata1);
-            ReleaseVariableStats(vardata2);
-            PG_RETURN_FLOAT8((float8) selec);
-        }
-        if (!get_attstatsslot(&sslot2, vardata1.statsTuple,
-                             STATISTIC_KIND_RANGE_LENGTH_HISTOGRAM,
-                             InvalidOid, ATTSTATSSLOT_VALUES))
-        {
-            ReleaseVariableStats(vardata1);
-            ReleaseVariableStats(vardata2);
-            PG_RETURN_FLOAT8((float8) selec);
-        }
-        if (!get_attstatsslot(&sslot3, vardata1.statsTuple,
                              STATISTIC_KIND_OCCURRENCE_HISTOGRAM,
                              InvalidOid, ATTSTATSSLOT_VALUES))
         {
@@ -180,78 +167,62 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
         }
     }
 
-    nhist = sslot1.nvalues;
-    hist_lower1 = (RangeBound *) palloc(sizeof(RangeBound) * nhist);
-    hist_upper1 = (RangeBound *) palloc(sizeof(RangeBound) * nhist);
-    hist_lengths1 = (float8 *) palloc(sizeof(float8) * nhist);
-    hist_occurs1 = (float8 *) palloc(sizeof(float8) * nhist);
-
-    // for (i = 0; i < nhist; i++)
-    // {
-    //     range_deserialize(typcache, DatumGetRangeTypeP(sslot1.values[i]),
-    //                       &hist_lower1[i], &hist_upper1[i], &empty);
-    //     /* The histogram should not contain any empty ranges */
-    //     if (empty)
-    //         elog(ERROR, "bounds histogram contains an empty range");
-    // }
-
-             // bound_hist_values[i] = PointerGetDatum(range_serialize(typcache, &lowers[pos], &uppers[pos], false));
-             // length_hist_values[i] = Float8GetDatum(lengths[pos]);
-
-    for (i = 0; i < nhist; i++)
+    if (HeapTupleIsValid(vardata2.statsTuple))
     {
-        range_deserialize(typcache, DatumGetRangeTypeP(sslot1.values[i]),
-                          &hist_lower1[i], &hist_upper1[i], &empty);
-        hist_lengths1[i] = sslot2.values[i];
-        hist_occurs1[i] = sslot3.values[i];
+        stats1 = (Form_pg_statistic) GETSTRUCT(vardata1.statsTuple);
+        /* Try to get fraction of empty ranges */
+        if (!get_attstatsslot(&sslot2, vardata2.statsTuple,
+                             STATISTIC_KIND_OCCURRENCE_HISTOGRAM,
+                             InvalidOid, ATTSTATSSLOT_VALUES))
+        {
+            ReleaseVariableStats(vardata2);
+            PG_RETURN_FLOAT8((float8) selec);
+        }
+    }
+
+    nhist1 = sslot1.nvalues;
+    nhist2 = sslot2.nvalues;
+    hist_occurs1 = (int *) palloc(sizeof(int) * nhist1);
+    hist_occurs2 = (int *) palloc(sizeof(int) * nhist2);
+
+    for (i = 0; i < nhist1; i++)
+    {
+        hist_occurs1[i] = sslot1.values[i];
         /* The histogram should not contain any empty ranges */
         if (empty)
             elog(ERROR, "bounds histogram contains an empty range");
     }
 
-    printf("hist_lower = [");
-    for (i = 0; i < nhist; i++)
+    for (i = 0; i < nhist2; i++)
     {
-        printf("%d", DatumGetInt16(hist_lower1[i].val));
-        if (i < nhist - 1)
+        hist_occurs2[i] = sslot2.values[i];
+        /* The histogram should not contain any empty ranges */
+        if (empty)
+            elog(ERROR, "bounds histogram contains an empty range");
+    }
+    
+    printf("table_1_hist_occurs = [");
+    for (i = 0; i < nhist1; i++)
+    {
+        printf("%d", hist_occurs1[i]);
+        if (i < nhist1 - 1)
             printf(", ");
     }
     printf("]\n");
-    printf("hist_upper = [");
-    for (i = 0; i < nhist; i++)
+    printf("table_2_hist_occurs = [");
+    for (i = 0; i < nhist2; i++)
     {
-        printf("%d", DatumGetInt16(hist_upper1[i].val));
-        if (i < nhist - 1)
-            printf(", ");
-    }
-    printf("]\n");
-    printf("hist_lengths = [");
-    for (i = 0; i < nhist; i++)
-    {
-        printf("%f", DatumGetFloat8(hist_lengths1[i]));
-        if (i < nhist - 1)
-            printf(", ");
-    }
-    printf("]\n");
-    printf("hist_occurs = [");
-    for (i = 0; i < nhist; i++)
-    {
-        printf("%f", DatumGetFloat8(hist_occurs1[i]));
-        if (i < nhist - 1)
+        printf("%d", hist_occurs2[i]);
+        if (i < nhist2 - 1)
             printf(", ");
     }
     printf("]\n");
 
     fflush(stdout);
-
-    pfree(hist_lower1);
-    pfree(hist_upper1);
-    pfree(hist_lengths1);
-    // pfree(hist_occurs1);
+    pfree(hist_occurs1);
 
     free_attstatsslot(&sslot1);
     free_attstatsslot(&sslot2);
-    // free_attstatsslot(&sslot3);
 
     ReleaseVariableStats(vardata1);
     ReleaseVariableStats(vardata2);

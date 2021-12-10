@@ -109,6 +109,8 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 	int			num_hist;
 	int			min_bound;
 	int			max_bound;
+	int			total_bin_count;
+	float8		avg_bin_count;
 	float8		*bounds; // array
 	float8	   *lengths;
 	float8	   *occurs;
@@ -124,8 +126,17 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 
 	for (int i = 0; i < 10; i++)
 	{
-		occurs[i] = 0;
+		occurs[i] = 0.0;
 	}
+
+	/* Prints contents of histogram. */
+	for (int i = 0; i < 10; i++) {
+		printf("%f ", DatumGetFloat8(occurs[i]));
+	}
+	printf("\n");
+	fflush(stdout);
+
+	total_bin_count = 0;
 
 	bounds = malloc(sizeof(float8) * 11);
 
@@ -152,16 +163,16 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 	// printf("lower and upper bounds are %d and %d", min_bound, max_bound);
 	// fflush(stdout);
 
+	/* Creates the bin intervals. */
 	for (int i = 0; i < 11; i++) {
 		bounds[i] = (float)min_bound + i * ((float)max_bound - (float)min_bound) / 10;
-		printf("%f ", bounds[i]);
-		fflush(stdout);
+		// printf("%f ", bounds[i]);
+		// fflush(stdout);
 	}
 
+	/* Fills in the occurrence bins for the occurrence histogram. */
 	for (int i = 0; i < 10; i++) 
 	{
-		printf("%f %f\n", bounds[i], bounds[i+1]);
-		fflush(stdout);
 		Datum		value;
 		bool		isnull,
 					empty;
@@ -176,22 +187,36 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 			range = DatumGetRangeTypeP(value); // datum is a pointer to void
 			range_deserialize(typcache, range, &lower, &upper, &empty);
 
-			if (DatumGetFloat8(lower.val) > bounds[i+1] || DatumGetFloat8(upper.val) < bounds[i]) {
-				printf("");
+			if ((float)DatumGetInt32(lower.val) >= bounds[i+1] || (float)DatumGetInt32(upper.val) < bounds[i]) {
 			} else {
-				occurs[i]++;
-				// printf("%f %f in bin %f %f\n", lower.val, upper.val, bounds[i], bounds[i+1]);
-				printf("%d %d in bin %f %f\n", DatumGetInt32(lower.val), DatumGetInt32(upper.val), bounds[i], bounds[i+1]);
+				occurs[i] += 1.0;
+				total_bin_count++;
 				fflush(stdout);
 			}
 		}
 	}
 
-	for (int i = 0; i < 10; i++)
-	{
+	// for (int i = 0; i < 10; i++)
+	// {
+	// 	printf("%d, ", DatumGetInt32(occurs[i]));
+	// 	fflush(stdout);
+	// }
+	
+	// printf("\n");
+	// fflush(stdout);
+
+	/* Calculates the average bin span of all ranges in the sample. */
+	// printf("%f : %f\n", (float8)total_bin_count, (float8)samplerows);
+	avg_bin_count = (float8)total_bin_count / (float8)samplerows;
+	// printf("%f ", avg_bin_count);
+	// fflush(stdout);
+
+	/* Prints contents of histogram. */
+	for (int i = 0; i < 10; i++) {
 		printf("%f ", occurs[i]);
-		fflush(stdout);
 	}
+	printf("\n");
+	fflush(stdout);
 
 	/* Loop over the sample ranges. */
 	for (range_no = 0; range_no < samplerows; range_no++)
@@ -203,7 +228,7 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 		RangeBound	lower,
 					upper;
 		float8		length;
-		float8		occur;
+		int			occur;
 		int			hist_num;
 
 		vacuum_delay_point();
@@ -253,32 +278,7 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 				length = 1.0;
 			}
 
-    // def count_occurrence(self):
-    //     for i in range(self.range_number):
-    //         for j in range(NO_BINS):
-    //             if overlaps(self.lines[i], self.bounds[j]):
-    //                 self.occurrence[j] += 1
-    //                 self.avg_bin_count += 1
-    //     self.avg_bin_count /= self.range_number
-    //     self.avg_bin_count = int(self.avg_bin_count + 1)
-
-			// for (hist_num = 0; hist_num < num_hist; hist_num++) // NUM HIST
-			// {
-			// 	if 
-			// 	occur = 
-			// 	bound_hist_values[i] = PointerGetDatum(range_serialize(typcache, &lowers[pos], &uppers[pos], false));  // MOST CRUCIAL LINE
-			// 	pos += delta;
-			// 	posfrac += deltafrac;
-			// 	if (posfrac >= (num_hist - 1))
-			// 	{
-			// 		/* fractional part exceeds 1, carry to integer part */
-			// 		pos++;
-			// 		posfrac -= (num_hist - 1);
-			// 	}
-			// }
-
 			lengths[non_empty_cnt] = length;
-			// occurs[non_empty_cnt] = occur;
 
 			non_empty_cnt++;
 		}
@@ -453,11 +453,6 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 		 */
 		if (non_empty_cnt >= 2)
 		{
-			/*
-			 * Ascending sort of range lengths for further filling of
-			 * histogram
-			 */
-			qsort(occurs, non_empty_cnt, sizeof(float8), float8_qsort_cmp);
 
 			num_hist = non_empty_cnt;
 			if (num_hist > num_bins)
@@ -465,30 +460,9 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 
 			occur_hist_values = (Datum *) palloc(num_hist * sizeof(Datum));
 
-			/*
-			 * The object of this loop is to copy the first and last lengths[]
-			 * entries along with evenly-spaced values in between. So the i'th
-			 * value is lengths[(i * (nvals - 1)) / (num_hist - 1)]. But
-			 * computing that subscript directly risks integer overflow when
-			 * the stats target is more than a couple thousand.  Instead we
-			 * add (nvals - 1) / (num_hist - 1) to pos at each step, tracking
-			 * the integral and fractional parts of the sum separately.
-			 */
-			delta = (non_empty_cnt - 1) / (num_hist - 1);
-			deltafrac = (non_empty_cnt - 1) % (num_hist - 1);
-			pos = posfrac = 0;
-
-			for (i = 0; i < num_hist; i++)
+			for (i = 0; i < 10 ;i++)
 			{
-				occur_hist_values[i] = Float8GetDatum(occurs[pos]);
-				pos += delta;
-				posfrac += deltafrac;
-				if (posfrac >= (num_hist - 1))
-				{
-					/* fractional part exceeds 1, carry to integer part */
-					pos++;
-					posfrac -= (num_hist - 1);
-				}
+				occur_hist_values[i] = occurs[i];
 			}
 		}
 		else
