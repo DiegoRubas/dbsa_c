@@ -129,9 +129,6 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 	{
 		occurs[i] = 0.0;
 	}
-
-	
-
 	total_bin_count = 0;
 
 	bounds = malloc(sizeof(float8) * total_bin);
@@ -203,8 +200,7 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 	/* Calculates the average bin span of all ranges in the sample. */
 	// printf("%f : %f\n", (float8)total_bin_count, (float8)samplerows);
 	avg_bin_count = (float8)total_bin_count / (float8)samplerows;
-	// printf("%f ", avg_bin_count);
-	// fflush(stdout);
+
 
 	/* Prints contents of histogram. */
 	for (int i = 0; i < total_bin-1; i++) {
@@ -495,10 +491,16 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 		Datum *avg_bin_count_datum;
 		avg_bin_count_datum = (Datum *) palloc(num_hist * sizeof(Datum));
 		//Adding 3 elements to avg_bin_count_datum to store other value if necessary
-		avg_bin_count_datum[0] = avg_bin_count;
-		avg_bin_count_datum[1] = avg_bin_count;
-		avg_bin_count_datum[2] = avg_bin_count;
+		avg_bin_count_datum[0] = 11.0; // it was avg_bin_count before 
+		//TODO : implement the two other variable need for geo_selfuncs
+		//avg_bin_count_datum[1] = avg_bin_count;
+		//avg_bin_count_datum[2] = avg_bin_count;
 
+		stats->numvalues[slot_idx] = 3;
+		stats->statypid[slot_idx] = FLOAT8OID;
+		stats->statyplen[slot_idx] = sizeof(float8);
+		stats->statypbyval[slot_idx] = FLOAT8PASSBYVAL;
+		stats->statypalign[slot_idx] = 'd';
 		//Adding the element to the stat variable
 		stats->stakind[slot_idx] = STATISTIC_OCCURRENCE_HISTOGRAM_AVG;
 		stats->stavalues[slot_idx] = avg_bin_count_datum;
