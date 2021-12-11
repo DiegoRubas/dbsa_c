@@ -111,13 +111,13 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 	int			max_bound;
 	int			total_bin_count;
 	float8		avg_bin_count;
-	float8		*bounds; // array
+	float8	   *avg_bin_counts;
+	float8	   *bounds; // array
 	float8	   *lengths;
 	float8	   *occurs;
 	RangeBound *lowers,
 			   *uppers;
 	double		total_width = 0;
-	int 		total_bin = 11;
 
 	/* Allocate memory to hold range bounds, lengths and occurrences of the sample ranges. */
 	lowers = (RangeBound *) palloc(sizeof(RangeBound) * samplerows);
@@ -125,13 +125,21 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 	lengths = (float8 *) palloc(sizeof(float8) * samplerows);
 	occurs = (float8 *) palloc(sizeof(float8) * samplerows);
 
-	for (int i = 0; i < total_bin-1; i++)
+	for (int i = 0; i < 10; i++)
 	{
 		occurs[i] = 0.0;
 	}
+
+	/* Prints contents of histogram. */
+	for (int i = 0; i < 10; i++) {
+		printf("%f ", DatumGetFloat8(occurs[i]));
+	}
+	printf("\n");
+	fflush(stdout);
+
 	total_bin_count = 0;
 
-	bounds = malloc(sizeof(float8) * total_bin);
+	bounds = malloc(sizeof(float8) * 11);
 
 	/* Extracts the highest upper bound and lowest lower bound values. */
 	min_bound = 10000000;
@@ -157,14 +165,14 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 	// fflush(stdout);
 
 	/* Creates the bin intervals. */
-	for (int i = 0; i < total_bin; i++) {
-		bounds[i] = (float)min_bound + i * ((float)max_bound - (float)min_bound) / total_bin-1;
+	for (int i = 0; i < 11; i++) {
+		bounds[i] = (float)min_bound + i * ((float)max_bound - (float)min_bound) / 10;
 		// printf("%f ", bounds[i]);
 		// fflush(stdout);
 	}
 
 	/* Fills in the occurrence bins for the occurrence histogram. */
-	for (int i = 0; i < total_bin-1; i++) 
+	for (int i = 0; i < 10; i++) 
 	{
 		Datum		value;
 		bool		isnull,
@@ -184,6 +192,7 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 			} else {
 				occurs[i] += 1.0;
 				total_bin_count++;
+				fflush(stdout);
 			}
 		}
 	}
@@ -200,10 +209,20 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 	/* Calculates the average bin span of all ranges in the sample. */
 	// printf("%f : %f\n", (float8)total_bin_count, (float8)samplerows);
 	avg_bin_count = (float8)total_bin_count / (float8)samplerows;
+	// printf("%f ", avg_bin_count);
+	// fflush(stdout);
 
+	printf("Histogram bounds: ");
+	/* Prints bounds of histogram. */
+	for (int i = 0; i < 11; i++) {
+		printf("%f ", bounds[i]);
+	}
+	printf("\n");
+	fflush(stdout);
 
+	printf("Histogram values: ");
 	/* Prints contents of histogram. */
-	for (int i = 0; i < total_bin-1; i++) {
+	for (int i = 0; i < 10; i++) {
 		printf("%f ", occurs[i]);
 	}
 	printf("\n");
@@ -287,6 +306,7 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 		Datum	   *bound_hist_values;
 		Datum	   *length_hist_values;
 		Datum	   *occur_hist_values;
+		Datum	   *occur_bound_values;
 		int			pos,
 					posfrac,
 					delta,
@@ -450,9 +470,8 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 				num_hist = num_bins + 1;
 
 			occur_hist_values = (Datum *) palloc(num_hist * sizeof(Datum));
-			
-			
-			for (i = 0; i < total_bin-1 ;i++)
+
+			for (i = 0; i < 10 ;i++)
 			{
 				occur_hist_values[i] = occurs[i];
 			}
@@ -487,25 +506,108 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 		stats->stakind[slot_idx] = STATISTIC_KIND_OCCURRENCE_HISTOGRAM;
 		slot_idx++;
 
-		//Store the average bin count that need to be pass to geo_selfuncs
-		Datum *avg_bin_count_datum;
-		avg_bin_count_datum = (Datum *) palloc(num_hist * sizeof(Datum));
-		//Adding 3 elements to avg_bin_count_datum to store other value if necessary
-		avg_bin_count_datum[0] = 11.0; // it was avg_bin_count before 
-		//TODO : implement the two other variable need for geo_selfuncs
-		//avg_bin_count_datum[1] = avg_bin_count;
-		//avg_bin_count_datum[2] = avg_bin_count;
+		/*
+		 * Generate a histogram bounds slot entry if there are at least two
+		 * values.
+		 */
+		if (non_empty_cnt >= 2)
+		{
 
-		stats->numvalues[slot_idx] = 3;
+			num_hist = non_empty_cnt;
+			if (num_hist > num_bins)
+				num_hist = num_bins + 1;
+
+			occur_bound_values = (Datum *) palloc(num_hist * sizeof(Datum));
+
+			for (i = 0; i < 11 ;i++)
+			{
+				occur_bound_values[i] = Float8GetDatum(bounds[i]);
+				printf("%f ", bounds[i]);
+				printf("%f\n", occur_bound_values[i]);
+				fflush(stdout);
+			}
+		}
+		else
+		{
+			/*
+			 * Even when we don't create the histogram, store an empty array
+			 * to mean "no histogram". We can't just leave stavalues NULL,
+			 * because get_attstatsslot() errors if you ask for stavalues, and
+			 * it's NULL. We'll still store the empty fraction in stanumbers.
+			 */
+			occur_bound_values = palloc(0);
+			num_hist = 0;
+		}
+
+		stats->staop[slot_idx] = Float8LessOperator;
+		stats->stacoll[slot_idx] = InvalidOid;
+		stats->stavalues[slot_idx] = occur_bound_values;
+		stats->numvalues[slot_idx] = num_hist+1;
 		stats->statypid[slot_idx] = FLOAT8OID;
 		stats->statyplen[slot_idx] = sizeof(float8);
 		stats->statypbyval[slot_idx] = FLOAT8PASSBYVAL;
 		stats->statypalign[slot_idx] = 'd';
-		//Adding the element to the stat variable
-		stats->stakind[slot_idx] = STATISTIC_OCCURRENCE_HISTOGRAM_AVG;
-		stats->stavalues[slot_idx] = avg_bin_count_datum;
 
+		/* Store the fraction of empty ranges */
+		emptyfrac = (float4 *) palloc(sizeof(float4));
+		*emptyfrac = ((double) empty_cnt) / ((double) non_null_cnt);
+		stats->stanumbers[slot_idx] = emptyfrac;
+		stats->numnumbers[slot_idx] = 1;
+
+		stats->stakind[slot_idx] = STATISTIC_KIND_OCCURRENCE_BOUNDS;
 		slot_idx++;
+
+		/*
+		 * Generate a average bin count slot entry if there are at least two
+		 * values.
+		 */
+		if (non_empty_cnt >= 2)
+		{
+
+			num_hist = non_empty_cnt;
+			if (num_hist > num_bins)
+				num_hist = num_bins + 1;
+
+			avg_bin_counts = (Datum *) palloc(num_hist * sizeof(Datum));
+
+			for (i = 0; i < 1 ; i++)
+			{
+				avg_bin_counts[i] = Float8GetDatum(avg_bin_count);
+				printf("%f ", DatumGetFloat8(avg_bin_counts[i]));
+				printf("%f\n", avg_bin_count);
+				fflush(stdout);
+			}
+		}
+		else
+		{
+			/*
+			 * Even when we don't create the histogram, store an empty array
+			 * to mean "no histogram". We can't just leave stavalues NULL,
+			 * because get_attstatsslot() errors if you ask for stavalues, and
+			 * it's NULL. We'll still store the empty fraction in stanumbers.
+			 */
+			avg_bin_counts = palloc(0);
+			num_hist = 0;
+		}
+
+		stats->staop[slot_idx] = Float8LessOperator;
+		stats->stacoll[slot_idx] = InvalidOid;
+		stats->stavalues[slot_idx] = avg_bin_counts;
+		stats->numvalues[slot_idx] = 1;
+		stats->statypid[slot_idx] = FLOAT8OID;
+		stats->statyplen[slot_idx] = sizeof(float8);
+		stats->statypbyval[slot_idx] = FLOAT8PASSBYVAL;
+		stats->statypalign[slot_idx] = 'd';
+
+		/* Store the fraction of empty ranges */
+		emptyfrac = (float4 *) palloc(sizeof(float4));
+		*emptyfrac = ((double) empty_cnt) / ((double) non_null_cnt);
+		stats->stanumbers[slot_idx] = emptyfrac;
+		stats->numnumbers[slot_idx] = 1;
+
+		stats->stakind[slot_idx] = STATISTIC_KIND_AVERAGE_BIN_COUNT;
+		slot_idx++;
+
 		MemoryContextSwitchTo(old_cxt);
 	}
 	else if (null_cnt > 0)

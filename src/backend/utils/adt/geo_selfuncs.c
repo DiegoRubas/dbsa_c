@@ -125,14 +125,22 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
     Oid         opfuncoid;
     AttStatsSlot sslot1;
     AttStatsSlot sslot2;
+    AttStatsSlot sslot1_2;
+    AttStatsSlot sslot2_2;
+    // AttStatsSlot sslot1_3;
+    // AttStatsSlot sslot2_3;
     int         nhist1;
     int         nhist2;
-    int        *hist_occurs1;
-    float8     *hist_avg_bin_count1;
-    VariableStatData vardata_stat1;
-    AttStatsSlot sslot_stat1;
-    int        *hist_occurs2;
-    int         *hist_avg_bin_count2;
+    int         nbounds1;
+    int         nbounds2;
+    // int         navg1;
+    // int         navg2;
+    int       *hist_occurs1;
+    int       *hist_occurs2;
+    Datum     *hist_bounds1;
+    Datum     *hist_bounds2;
+    // Datum     *avgs1;
+    // Datum     *avgs2;
     int         i;
     Form_pg_statistic stats1 = NULL;
     TypeCacheEntry *typcache = NULL;
@@ -169,27 +177,16 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
             ReleaseVariableStats(vardata2);
             PG_RETURN_FLOAT8((float8) selec);
         }
-        
-        
-    }
-    
-     if (!statistic_proc_security_check(&vardata_stat1, opfuncoid))
-        PG_RETURN_FLOAT8((float8) selec);
-
-    if (HeapTupleIsValid(vardata_stat1.statsTuple))
-    {
-        //Try to get the additionnal statistique from rangetypes_typanalyze such as avg_bin_count
-        if (!get_attstatsslot(&sslot_stat1, vardata_stat1.statsTuple,
-                             STATISTIC_OCCURRENCE_HISTOGRAM_AVG,
+        /* Try to get fraction of empty ranges */
+        if (!get_attstatsslot(&sslot1_2, vardata1.statsTuple,
+                             STATISTIC_KIND_OCCURRENCE_BOUNDS,
                              InvalidOid, ATTSTATSSLOT_VALUES))
         {
             ReleaseVariableStats(vardata1);
             ReleaseVariableStats(vardata2);
-            ReleaseVariableStats(vardata_stat1);
             PG_RETURN_FLOAT8((float8) selec);
         }
     }
-    
 
     if (HeapTupleIsValid(vardata2.statsTuple))
     {
@@ -202,28 +199,36 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
             ReleaseVariableStats(vardata2);
             PG_RETURN_FLOAT8((float8) selec);
         }
-        //Try to get the additionnal statistique from rangetypes_typanalyze such as avg_bin_count
-       /* if (!get_attstatsslot(&hist_avg_bin_count2, vardata2.statsTuple,
-                             STATISTIC_OCCURRENCE_HISTOGRAM_AVG,
+        /* Try to get fraction of empty ranges */
+        if (!get_attstatsslot(&sslot2_2, vardata2.statsTuple,
+                             STATISTIC_KIND_OCCURRENCE_BOUNDS,
                              InvalidOid, ATTSTATSSLOT_VALUES))
         {
             ReleaseVariableStats(vardata1);
             ReleaseVariableStats(vardata2);
             PG_RETURN_FLOAT8((float8) selec);
         }
-        */
     }
-
 
     nhist1 = sslot1.nvalues;
     nhist2 = sslot2.nvalues;
+    nbounds1 = sslot1_2.nvalues;
+    nbounds2 = sslot2_2.nvalues;
     hist_occurs1 = (int *) palloc(sizeof(int) * nhist1);
     hist_occurs2 = (int *) palloc(sizeof(int) * nhist2);
-
+    hist_bounds1 = (Datum *) palloc(sizeof(Datum) * nbounds1);
+    hist_bounds2 = (Datum *) palloc(sizeof(Datum) * nbounds2);
 
     for (i = 0; i < nhist1; i++)
     {
         hist_occurs1[i] = sslot1.values[i];
+        /* The histogram should not contain any empty ranges */
+        if (empty)
+            elog(ERROR, "bounds histogram contains an empty range");
+    }
+    for (i = 0; i < nbounds1; i++)
+    {
+        hist_bounds1[i] = sslot1_2.values[i];
         /* The histogram should not contain any empty ranges */
         if (empty)
             elog(ERROR, "bounds histogram contains an empty range");
@@ -236,27 +241,30 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
         if (empty)
             elog(ERROR, "bounds histogram contains an empty range");
     }
+    for (i = 0; i < nbounds2; i++)
+    {
+        hist_bounds2[i] = sslot2_2.values[i];
+        /* The histogram should not contain any empty ranges */
+        if (empty)
+            elog(ERROR, "bounds histogram contains an empty range");
+    }
     
-    int total_bin_count = 0;
     printf("table_1_hist_occurs = [");
     for (i = 0; i < nhist1; i++)
     {
-        total_bin_count += hist_occurs1[i];
         printf("%d", hist_occurs1[i]);
-
         if (i < nhist1 - 1)
             printf(", ");
     }
     printf("]\n");
-
-    float8 value;
-    value =  (float8)total_bin_count/(float8)nhist1;
-    //printf("Average bin count = %f \n total_bin_count = %d \n nhist = %d\n",value, total_bin_count,nhist1);
-    fflush(stdout);
-    
-    //TODO: find a way to retrieve the 11 from rangetypes_typanalyze
-    printf("Value : %f \n",DatumGetFloat8(sslot_stat1.values[0]));
-
+    printf("table_1_hist_bounds = [");
+    for (i = 0; i < nbounds1; i++)
+    {
+        printf("%f", DatumGetFloat8(hist_bounds1[i]));
+        if (i < nbounds1 - 1)
+            printf(", ");
+    }
+    printf("]\n");
     printf("table_2_hist_occurs = [");
     for (i = 0; i < nhist2; i++)
     {
@@ -265,18 +273,23 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
             printf(", ");
     }
     printf("]\n");
+    printf("table_2_hist_bounds = [");
+    for (i = 0; i < nbounds2; i++)
+    {
+        printf("%f", DatumGetFloat8(hist_bounds2[i]));
+        if (i < nbounds2 - 1)
+            printf(", ");
+    }
+    printf("]\n");
 
     fflush(stdout);
     pfree(hist_occurs1);
-    pfree(hist_occurs2);
 
     free_attstatsslot(&sslot1);
     free_attstatsslot(&sslot2);
-    //free_attstatsslot(&sslot_stat1);
 
     ReleaseVariableStats(vardata1);
     ReleaseVariableStats(vardata2);
-    //ReleaseVariableStats(vardata_stat1);
 
     CLAMP_PROBABILITY(selec);
     PG_RETURN_FLOAT8((float8) selec);
