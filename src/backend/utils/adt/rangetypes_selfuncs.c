@@ -35,8 +35,8 @@ static double calc_rangesel(TypeCacheEntry *typcache, VariableStatData *vardata,
 static double calc_hist_selectivity(TypeCacheEntry *typcache,
 									VariableStatData *vardata, const RangeType *constval,
 									Oid operator);
-static double calc_hist_selectivity_strictly_left_of(char *string);
-static double calc_hist_selectivity_overlaps(char *string);
+int calc_hist_selectivity_strictly_left_of(Datum bound1[],int upper_bounds1[], int lower);
+int calc_hist_selectivity_overlaps(Datum bounds1[], int occurence[], int lower, int upper);
 
 /*
  * rangesel -- restriction selectivity for range operators
@@ -55,9 +55,10 @@ rangesel(PG_FUNCTION_ARGS)
 	TypeCacheEntry *typcache = NULL;
 	RangeType  *constrange = NULL;
 
-	RangeBound 	const_lower,
+	/*RangeBound 	const_lower,
 				const_upper;
 	bool		empty;
+	*/
 	
 	if (!get_restriction_variable(root, args, varRelid,
 								  &vardata, &other, &varonleft))
@@ -122,7 +123,7 @@ rangesel(PG_FUNCTION_ARGS)
 	// printf("%d %d\n", const_lower.val, const_upper.val);
 	// fflush(stdout);
 
-	switch (operator)
+	/*switch (operator)
 	{
 		case OID_RANGE_OVERLAP_OP:
 			printf("range overlap mate\n");
@@ -133,6 +134,7 @@ rangesel(PG_FUNCTION_ARGS)
 			fflush(stdout);
 			break;
 	}
+	*/
 
 	selec = calc_rangesel(typcache, &vardata, constrange, operator);
 
@@ -167,7 +169,7 @@ calc_hist_selectivity(TypeCacheEntry *typcache, VariableStatData *vardata,
 				*hist_occurs1;
     Datum		*hist_bounds1;
 	
-	double		hist_selec;
+	int			hist_selec;
 
 	RangeBound 	const_lower,
 				const_upper;
@@ -225,32 +227,56 @@ calc_hist_selectivity(TypeCacheEntry *typcache, VariableStatData *vardata,
 
 	range_deserialize(typcache, constval, &const_lower, &const_upper, &empty);
 
-	printf("Constant range bounds: [%d, %d]\n", const_lower.val, const_upper.val);
+	printf("Constant range bounds: [%d, %d]\n", DatumGetInt16(const_lower.val), DatumGetInt16(const_upper.val));
 	fflush(stdout);
-
 	switch (operator)
 	{
 		case OID_RANGE_LEFT_OP:
 			/* var << const when upper(var) < lower(const) */
-			hist_selec = calc_hist_selectivity_strictly_left_of("remplissez avec les valeurs qu'il vous faut");
+			hist_selec = calc_hist_selectivity_strictly_left_of(hist_bounds1,hist_occurs1,const_lower.val);
+			printf("Hist_selec %d", hist_selec);
 			break;
 
 		case OID_RANGE_OVERLAP_OP:
 
-			hist_selec = calc_hist_selectivity_overlaps("remplissez avec les valeurs qu'il vous faut");
+			hist_selec = calc_hist_selectivity_overlaps(hist_bounds1,hist_occurs1,const_lower.val, const_upper.val);
+			printf("Hist_selec %d", hist_selec);
+			break;
+		default: 
+			hist_selec = 0;
 			break;
 	}
-
+	fflush(stdout);
 	return hist_selec;
 
 }
-
-static double calc_hist_selectivity_strictly_left_of(char *string)
+int calc_hist_selectivity_strictly_left_of(Datum bound1[],int upper_bounds1[], int lower)
 {
-	
+    int total_bins = 10;
+    int count = 0;
+    for(int i =0; i<total_bins;i++){ //10%
+        if(DatumGetFloat8(bound1[i+1])< lower){
+            count += upper_bounds1[i];
+        }
+    }
+    return count;
 }
 
-static double calc_hist_selectivity_overlaps(char *string)
+
+int calc_hist_selectivity_overlaps(Datum bounds1[], int occurence[], int lower, int upper)
 {
-	
+    int total_bins = 10;
+    int count = 0; 
+	int range_bin_count = 0;
+    for(int i=0;i<total_bins;i++){
+        if(!( DatumGetFloat8(bounds1[i]) < upper ||  DatumGetFloat8(bounds1[i+1]) > lower)){
+            count+= occurence[i];
+            range_bin_count++;
+        }
+    }
+    if(range_bin_count !=0){//61%
+        count /= round(range_bin_count);//pour moi pas trop utile ça, (le round)
+    }
+    count = (int) round(count);
+    return count;
 }
