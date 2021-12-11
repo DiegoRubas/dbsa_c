@@ -35,7 +35,8 @@ static double calc_rangesel(TypeCacheEntry *typcache, VariableStatData *vardata,
 static double calc_hist_selectivity(TypeCacheEntry *typcache,
 									VariableStatData *vardata, const RangeType *constval,
 									Oid operator);
-static double calc_hist_selectivity_strictly_left_of(TypeCacheEntry *typcache, int *hist_occurs1, int *nbounds1, int *nhist1, RangeBound const_lower, bool *empty);
+static double calc_hist_selectivity_strictly_left_of(char *string);
+static double calc_hist_selectivity_overlaps(char *string);
 
 /*
  * rangesel -- restriction selectivity for range operators
@@ -158,8 +159,8 @@ calc_hist_selectivity(TypeCacheEntry *typcache, VariableStatData *vardata,
 					  const RangeType *constval, Oid operator)
 {
     AttStatsSlot slot1;
-    AttStatsSlot slot1_2;
-    AttStatsSlot slot1_3;
+    AttStatsSlot slot2;
+    AttStatsSlot slot3;
     int         i,
 				nhist1,
 				nbounds1,
@@ -175,29 +176,34 @@ calc_hist_selectivity(TypeCacheEntry *typcache, VariableStatData *vardata,
     int         navg1;
     Datum     *avgs1;
 	
-	// if (!(HeapTupleIsValid(vardata->statsTuple) &&
-	// 	  get_attstatsslot(&slot1, vardata->statsTuple,
-	// 					   STATISTIC_KIND_BOUNDS_HISTOGRAM, InvalidOid,
-	// 					   ATTSTATSSLOT_VALUES)))
 	if (!get_attstatsslot(&slot1, vardata->statsTuple,
                              STATISTIC_KIND_OCCURRENCE_HISTOGRAM,
                              InvalidOid, ATTSTATSSLOT_VALUES))
 		return -1.0;
+	if (!get_attstatsslot(&slot2, vardata->statsTuple,
+                             STATISTIC_KIND_OCCURRENCE_BOUNDS,
+                             InvalidOid, ATTSTATSSLOT_VALUES))
+		return -1.0;
+	if (!get_attstatsslot(&slot3, vardata->statsTuple,
+                             STATISTIC_KIND_AVERAGE_BIN_COUNT,
+                             InvalidOid, ATTSTATSSLOT_VALUES))
+		return -1.0;
 
     nhist1 = slot1.nvalues;
-	// printf("%d\n", nhist1);
-	// fflush(stdout);
+    nbounds1 = slot2.nvalues;
+    navg1 = slot3.nvalues;
     hist_occurs1 = (int *) palloc(sizeof(int) * nhist1);
+    hist_bounds1 = (Datum *) palloc(sizeof(Datum) * nbounds1);
+    avgs1 = (Datum *) palloc(sizeof(Datum) * navg1);
 	
 	for (i = 0; i < nhist1; i++)
-    {
         hist_occurs1[i] = slot1.values[i];
-        /* The histogram should not contain any empty ranges */
-        if (empty)
-            elog(ERROR, "bounds histogram contains an empty range");
-    }
+	for (i = 0; i < nbounds1; i++)
+        hist_bounds1[i] = slot2.values[i];
+	for (i = 0; i < navg1; i++)
+        avgs1[i] = slot3.values[i];
 
-    printf("table_1_hist_occurs = [");
+    printf("Table 1 Histogram Values = [");
     for (i = 0; i < nhist1; i++)
     {
         printf("%d", hist_occurs1[i]);
@@ -205,42 +211,46 @@ calc_hist_selectivity(TypeCacheEntry *typcache, VariableStatData *vardata,
             printf(", ");
     }
     printf("]\n");
+    printf("Table 1 Histogram Bounds = [");
+    for (i = 0; i < nbounds1; i++)
+    {
+        printf("%f", DatumGetFloat8(hist_bounds1[i]));
+        if (i < nbounds1 - 1)
+            printf(", ");
+    }
+    printf("]\n");
+    printf("Table 1 Average Range Bin Span = ");
+    printf("%f", DatumGetFloat8(avgs1[0]));
+    printf("\n");
 
 	range_deserialize(typcache, constval, &const_lower, &const_upper, &empty);
 
-	printf("%d %d\n", const_lower.val, const_upper.val);
+	printf("Constant range bounds: [%d, %d]\n", const_lower.val, const_upper.val);
 	fflush(stdout);
 
 	switch (operator)
 	{
 		case OID_RANGE_LEFT_OP:
 			/* var << const when upper(var) < lower(const) */
-			hist_selec = calc_hist_selectivity_strictly_left_of(typcache, hist_occurs1, nbounds1, nhist1, const_lower, false);
+			hist_selec = calc_hist_selectivity_strictly_left_of("remplissez avec les valeurs qu'il vous faut");
 			break;
 
-		// case OID_RANGE_OVERLAP_OP:
+		case OID_RANGE_OVERLAP_OP:
 
-		// 	/*
-		// 	 * A && B <=> NOT (A << B OR A >> B).
-		// 	 *
-		// 	 * Since A << B and A >> B are mutually exclusive events we can
-		// 	 * sum their probabilities to find probability of (A << B OR A >>
-		// 	 * B).
-		// 	 *
-		// 	 * "range @> elem" is equivalent to "range && [elem,elem]". The
-		// 	 * caller already constructed the singular range from the element
-		// 	 * constant, so just treat it the same as &&.
-		// 	 */
-
-		// 	hist_selec = calc_hist_selectivity_overlaps(typcache, &const_lower, hist_upper, nhist, false);
-		// 	break;
+			hist_selec = calc_hist_selectivity_overlaps("remplissez avec les valeurs qu'il vous faut");
+			break;
 	}
+
+	return hist_selec;
 
 }
 
-static double 
-calc_hist_selectivity_strictly_left_of(TypeCacheEntry *typcache, int *hist_occurs1, 
-										int *nbounds1, int *nhist1, RangeBound const_lower, bool *empty)
+static double calc_hist_selectivity_strictly_left_of(char *string)
 {
-	int i = 0;
+	
+}
+
+static double calc_hist_selectivity_overlaps(char *string)
+{
+	
 }
