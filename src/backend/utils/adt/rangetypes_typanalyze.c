@@ -111,7 +111,6 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 	int			max_bound;
 	int			total_bin_count;
 	float8		avg_bin_count;
-	float8	   *avg_bin_counts;
 	float8	   *bounds; // array
 	float8	   *lengths;
 	float8	   *occurs;
@@ -307,6 +306,7 @@ compute_range_stats(VacAttrStats *stats, AnalyzeAttrFetchFunc fetchfunc,
 		Datum	   *length_hist_values;
 		Datum	   *occur_hist_values;
 		Datum	   *occur_bound_values;
+		Datum	   *avg_bin_counts;
 		int			pos,
 					posfrac,
 					delta,

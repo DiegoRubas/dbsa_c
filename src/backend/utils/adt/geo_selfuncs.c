@@ -127,20 +127,20 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
     AttStatsSlot sslot2;
     AttStatsSlot sslot1_2;
     AttStatsSlot sslot2_2;
-    // AttStatsSlot sslot1_3;
-    // AttStatsSlot sslot2_3;
+    AttStatsSlot sslot1_3;
+    AttStatsSlot sslot2_3;
     int         nhist1;
     int         nhist2;
     int         nbounds1;
     int         nbounds2;
-    // int         navg1;
-    // int         navg2;
+    int         navg1;
+    int         navg2;
     int       *hist_occurs1;
     int       *hist_occurs2;
     Datum     *hist_bounds1;
     Datum     *hist_bounds2;
-    // Datum     *avgs1;
-    // Datum     *avgs2;
+    Datum     *avgs1;
+    Datum     *avgs2;
     int         i;
     Form_pg_statistic stats1 = NULL;
     TypeCacheEntry *typcache = NULL;
@@ -186,6 +186,15 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
             ReleaseVariableStats(vardata2);
             PG_RETURN_FLOAT8((float8) selec);
         }
+        /* Try to get fraction of empty ranges */
+        if (!get_attstatsslot(&sslot1_3, vardata1.statsTuple,
+                             STATISTIC_KIND_AVERAGE_BIN_COUNT,
+                             InvalidOid, ATTSTATSSLOT_VALUES))
+        {
+            ReleaseVariableStats(vardata1);
+            ReleaseVariableStats(vardata2);
+            PG_RETURN_FLOAT8((float8) selec);
+        }
     }
 
     if (HeapTupleIsValid(vardata2.statsTuple))
@@ -208,16 +217,29 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
             ReleaseVariableStats(vardata2);
             PG_RETURN_FLOAT8((float8) selec);
         }
+        /* Try to get fraction of empty ranges */
+        if (!get_attstatsslot(&sslot2_3, vardata2.statsTuple,
+                             STATISTIC_KIND_AVERAGE_BIN_COUNT,
+                             InvalidOid, ATTSTATSSLOT_VALUES))
+        {
+            ReleaseVariableStats(vardata1);
+            ReleaseVariableStats(vardata2);
+            PG_RETURN_FLOAT8((float8) selec);
+        }
     }
 
     nhist1 = sslot1.nvalues;
     nhist2 = sslot2.nvalues;
     nbounds1 = sslot1_2.nvalues;
     nbounds2 = sslot2_2.nvalues;
+    navg1 = sslot1_3.nvalues;
+    navg2 = sslot2_3.nvalues;
     hist_occurs1 = (int *) palloc(sizeof(int) * nhist1);
     hist_occurs2 = (int *) palloc(sizeof(int) * nhist2);
     hist_bounds1 = (Datum *) palloc(sizeof(Datum) * nbounds1);
     hist_bounds2 = (Datum *) palloc(sizeof(Datum) * nbounds2);
+    avgs1 = (Datum *) palloc(sizeof(Datum) * navg1);
+    avgs2 = (Datum *) palloc(sizeof(Datum) * navg2);
 
     for (i = 0; i < nhist1; i++)
     {
@@ -233,6 +255,13 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
         if (empty)
             elog(ERROR, "bounds histogram contains an empty range");
     }
+    for (i = 0; i < navg1; i++)
+    {
+        avgs1[i] = sslot1_3.values[i];
+        /* The histogram should not contain any empty ranges */
+        if (empty)
+            elog(ERROR, "bounds histogram contains an empty range");
+    }
 
     for (i = 0; i < nhist2; i++)
     {
@@ -244,6 +273,13 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
     for (i = 0; i < nbounds2; i++)
     {
         hist_bounds2[i] = sslot2_2.values[i];
+        /* The histogram should not contain any empty ranges */
+        if (empty)
+            elog(ERROR, "bounds histogram contains an empty range");
+    }
+    for (i = 0; i < navg2; i++)
+    {
+        avgs2[i] = sslot2_3.values[i];
         /* The histogram should not contain any empty ranges */
         if (empty)
             elog(ERROR, "bounds histogram contains an empty range");
@@ -265,6 +301,9 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
             printf(", ");
     }
     printf("]\n");
+    printf("table_1_avg = [");
+    printf("%f", DatumGetFloat8(avgs1[0]));
+    printf("]\n");
     printf("table_2_hist_occurs = [");
     for (i = 0; i < nhist2; i++)
     {
@@ -280,6 +319,9 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
         if (i < nbounds2 - 1)
             printf(", ");
     }
+    printf("]\n");
+    printf("table_2_avg = [");
+    printf("%f", DatumGetFloat8(avgs2[0]));
     printf("]\n");
 
     fflush(stdout);
