@@ -250,10 +250,14 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
         }
     }
 
-    nhist1 = sslot1.nvalues;
-    nhist2 = sslot2.nvalues;
+    //nhist1 = sslot1.nvalues;
+    nhist1 = 10;
+    nhist2 = 10;
+    //nhist2 = sslot2.nvalues;
     nbounds1 = sslot1_2.nvalues;
     nbounds2 = sslot2_2.nvalues;
+    nbounds1 = 11;
+    nbounds2 = 11;
     navg1 = sslot1_3.nvalues;
     navg2 = sslot2_3.nvalues;
     hist_occurs1 = (int *) palloc(sizeof(int) * nhist1);
@@ -347,7 +351,7 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
     printf("]\n");
 
     float8 countes = join_estimation(hist_bounds1,hist_occurs1, DatumGetFloat8(avgs1[0]),hist_bounds2,hist_occurs2,DatumGetFloat8(avgs2[0]));
-    printf("Countes des familles %f \n",countes);
+    printf("Cardinality estimation: %f \n",countes);
     fflush(stdout);
     pfree(hist_occurs1);
 
