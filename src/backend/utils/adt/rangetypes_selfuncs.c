@@ -36,7 +36,7 @@ static double calc_hist_selectivity(TypeCacheEntry *typcache,
 									VariableStatData *vardata, const RangeType *constval,
 									Oid operator);
 int calc_hist_selectivity_strictly_left_of(Datum bound1[],int upper_bounds1[], int lower);
-int calc_hist_selectivity_overlaps(Datum bounds1[], int occurence[], int lower, int upper);
+int calc_hist_selectivity_overlaps(Datum bounds1[], int occurence[], Datum lower, Datum upper);
 
 /*
  * rangesel -- restriction selectivity for range operators
@@ -263,13 +263,13 @@ int calc_hist_selectivity_strictly_left_of(Datum bound1[],int upper_bounds1[], i
 }
 
 
-int calc_hist_selectivity_overlaps(Datum bounds1[], int occurence[], int lower, int upper)
+int calc_hist_selectivity_overlaps(Datum bounds1[], int occurence[], Datum lower, Datum upper)
 {
     int total_bins = 10;
     int count = 0; 
 	int range_bin_count = 0;
     for(int i=0;i<total_bins;i++){
-        if(!( DatumGetFloat8(bounds1[i]) < upper ||  DatumGetFloat8(bounds1[i+1]) > lower)){
+        if(!( DatumGetFloat8(bounds1[i]) > DatumGetInt16(upper) ||  DatumGetFloat8(bounds1[i+1]) < DatumGetInt16(lower))){
             count+= occurence[i];
             range_bin_count++;
         }
