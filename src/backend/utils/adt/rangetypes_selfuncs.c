@@ -275,7 +275,7 @@ int calc_hist_selectivity_overlaps(Datum bounds1[], int occurence[], Datum lower
         }
     }
     if(range_bin_count !=0){//61%
-        count /= round(range_bin_count);//pour moi pas trop utile ça, (le round)
+        count /= round(range_bin_count);
     }
     count = (int) round(count);
     return count;
