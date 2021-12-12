@@ -31,6 +31,27 @@
 #include "utils/selfuncs.h"
 #include "utils/rangetypes.h"
 
+#include <math.h>
+
+int join_estimation(Datum histo1[],int occurrence1[],float8 avg_bin_count1,Datum histo2[], int occurrence2[],float8 avg_bin_count2){
+    int total_bins = 10;
+    float8 count = 0;
+    for(int i= 0;i< total_bins;i++){
+        for(int j= 0;j< total_bins;j++){
+            if(!(DatumGetFloat8(histo1[i]) > DatumGetFloat8(histo2[j+1]) || DatumGetFloat8(histo1[i+1]) < DatumGetFloat8(histo2[j])) ){
+//                printf("Occu1 = %d || Occu2 = %d || multi = %d",occurrence1[i],occurrence2[i], occurrence1[i] * occurrence2[j]);
+                count+=occurrence1[i] * occurrence2[j] ; 
+//                printf("Count in the for loop =  %f \n", count);
+            }
+        }
+    }
+    
+    count /= avg_bin_count1  + avg_bin_count2 ; 
+    //count = round(count); 
+    //printf("Count = %f \n",count);
+    fflush(stdout);
+    return (int) round(count);
+}
 
 /*
  *  Selectivity functions for geometric operators.  These are bogus -- unless
@@ -146,6 +167,7 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
     TypeCacheEntry *typcache = NULL;
     bool        join_is_reversed;
     bool        empty;
+    
 
 
     get_join_variables(root, args, sjinfo,
@@ -324,6 +346,8 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
     printf("%f", DatumGetFloat8(avgs2[0]));
     printf("]\n");
 
+    float8 countes = join_estimation(hist_bounds1,hist_occurs1, DatumGetFloat8(avgs1[0]),hist_bounds2,hist_occurs2,DatumGetFloat8(avgs2[0]));
+    printf("Countes des familles %f \n",countes);
     fflush(stdout);
     pfree(hist_occurs1);
 
@@ -336,3 +360,6 @@ rangeoverlapsjoinsel(PG_FUNCTION_ARGS)
     CLAMP_PROBABILITY(selec);
     PG_RETURN_FLOAT8((float8) selec);
 }
+
+
+
